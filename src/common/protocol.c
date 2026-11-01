@@ -744,8 +744,7 @@ protocol_result_t protocol_recv_message(
 }
 
 void protocol_message_free(
-    protocol_message_t *message
-) {
+    protocol_message_t *message) {
     if (message == NULL) {
         return;
     }
@@ -754,5 +753,3 @@ void protocol_message_free(
 
     *message = (protocol_message_t){0};
 }
-
-

@@ -19,4 +19,3 @@ src/client/: implementación del cliente.
 docs/: documentación.
 
 videos/: archivos multimedia locales.
-

@@ -47,10 +47,10 @@ int main(int argc, char *argv[])
         if (argv_repro == NULL) {
             fprintf(stderr, "Error: no se encontro un reproductor (mpv, ffplay o vlc). "
                             "Instale uno, indique otro con -r, o use -n para no reproducir.\n");
+
             return ERR_ARGS;
         }
     }
-
     if (cfg.verboso) {
         printf("Servidor: %s:%s | accion: %d | timeout: %d s\n",
                cfg.direccion, cfg.puerto, (int)cfg.accion, cfg.timeout_s);
@@ -92,4 +92,4 @@ int main(int argc, char *argv[])
     }
     player_liberar_argv(argv_repro);
     return rc;
-}
+}
