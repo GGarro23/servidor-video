@@ -134,6 +134,5 @@ protocol_result_t protocol_encode_catalog(
     size_t capacity,
     size_t *written
 );
-
 //cierre de protocol_h
 #endif

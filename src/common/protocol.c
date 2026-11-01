@@ -744,8 +744,7 @@ protocol_result_t protocol_recv_message(
 }
 
 void protocol_message_free(
-    protocol_message_t *message
-) {
+    protocol_message_t *message) {
     if (message == NULL) {
         return;
     }
@@ -799,8 +798,7 @@ protocol_result_t protocol_encode_catalog(
             ) != PROTOCOL_OK) {
             return PROTOCOL_INVALID;
         }
-
-        // Comprobar que no existan nombres duplicados.
+       // Comprobar que no existan nombres duplicados.
         for (uint16_t j = 0; j < i; j++) {
             if (entries[j].name_length == entry->name_length &&
                 memcmp(entries[j].name,
@@ -861,3 +859,4 @@ protocol_result_t protocol_encode_catalog(
     *written = offset;
     return PROTOCOL_OK;
 }
+
