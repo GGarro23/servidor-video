@@ -56,9 +56,16 @@ $(BUILD)/tests/%: tests/%.c $(COMMON_SRC)
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) $^ -o $@
 
+# Prueba del timeline (necesita timeline.c)
+UNIT_TESTS += $(BUILD)/tests/test_timeline
+
+$(BUILD)/tests/test_timeline: tests/test_timeline.c src/servidor/timeline.c
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) $^ -o $@
+
 test: $(UNIT_TESTS)
-	@for t in $(UNIT_TESTS); do echo "== $$t"; $$t || exit 1; done
-	@echo "Todas las pruebas unitarias pasaron."
+	@for t in $(UNIT_TESTS); do echo "\n== $$t"; $$t || exit 1; done
+	@echo "\nTodas las pruebas unitarias pasaron."
 
 clean:
 	rm -rf $(BUILD) cliente servidor
