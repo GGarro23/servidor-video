@@ -1,5 +1,9 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "servidor.h"
 #include "protocol.h"
+#include "vod.h"
+#include "vod_control.h"
 
 #include <stdlib.h>
 #include <arpa/inet.h>
@@ -19,6 +23,7 @@
 typedef enum {
     SESION_INICIO,
     SESION_LISTA,
+    SESION_VOD,
     SESION_CERRANDO
 } estado_sesion_t;
 
@@ -185,10 +190,80 @@ static protocol_result_t manejar_listar(
     return resultado;
 }
 
+static protocol_result_t manejar_abrir(
+    int fd_cliente,
+    const protocol_message_t *msg,
+    const catalog_t *catalog,
+    vod_transfer_t *transfer,
+    estado_sesion_t *estado
+) {
+    uint32_t id = msg->header.request_id;
+
+    // Decodificar el nombre recibido del cliente.
+    const uint8_t *nombre_bytes = NULL;
+    uint16_t longitud = 0;
+
+    if (protocol_decode_name(
+            msg->payload,
+            msg->header.payload_length,
+            &nombre_bytes,
+            &longitud
+        ) != PROTOCOL_OK) {
+        return enviar_error(fd_cliente, id,
+                            PROTOCOL_STATUS_SOLICITUD,
+                            "nombre de contenido invalido");
+    }
+
+    // Convertir los bytes recibidos a una cadena C.
+    char nombre[PROTOCOL_MAX_NAME + 1];
+
+    memcpy(nombre, nombre_bytes, longitud);
+    nombre[longitud] = '\0';
+
+    // Preparar la transferencia mediante el catálogo.
+    catalog_result_t resultado = vod_preparar(
+        catalog, nombre, id, transfer
+    );
+
+    if (resultado == CATALOG_NOT_FOUND) {
+        return enviar_error(fd_cliente, id,
+                            PROTOCOL_STATUS_NO_HALLADO,
+                            "contenido no encontrado");
+    }
+
+    if (resultado == CATALOG_NOT_SERVABLE) {
+        return enviar_error(fd_cliente, id,
+                            PROTOCOL_STATUS_NO_SERVIBLE,
+                            "contenido no disponible");
+    }
+
+    if (resultado != CATALOG_OK) {
+        return enviar_error(fd_cliente, id,
+                            PROTOCOL_STATUS_INTERNO,
+                            "no se pudo preparar la transferencia");
+    }
+
+    // Confirmar al cliente que el archivo fue aceptado.
+    protocol_result_t r = vod_enviar_aceptado(
+        fd_cliente, transfer
+    );
+
+    if (r != PROTOCOL_OK) {
+        vod_liberar(transfer);
+        return r;
+    }
+
+    // Ahora tenemos una transferencia activa.
+    *estado = SESION_VOD;
+
+    return PROTOCOL_OK;
+}
+
 static protocol_result_t despachar_en_lista(int fd_cliente,
                                              const protocol_message_t *msg,
                                              estado_sesion_t *estado,
-                                             const catalog_t *catalog) {
+                                             const catalog_t *catalog,
+                                             vod_transfer_t *transfer) {
     uint32_t id = msg->header.request_id;
 
     switch ((protocol_message_type_t)msg->header.type) {
@@ -196,8 +271,13 @@ static protocol_result_t despachar_en_lista(int fd_cliente,
             return manejar_listar(fd_cliente, id, catalog);
 
         case PROTOCOL_MSG_ABRIR:
-            return enviar_error(fd_cliente, id, PROTOCOL_STATUS_NO_HALLADO,
-                                 "el contenido no esta disponible todavia");
+            return manejar_abrir(
+                fd_cliente,
+                msg,
+                catalog,
+                transfer,
+                estado
+            );
 
         case PROTOCOL_MSG_UNIR:
             return enviar_error(fd_cliente, id, PROTOCOL_STATUS_NO_SERVIBLE,
@@ -217,17 +297,40 @@ static protocol_result_t despachar_en_lista(int fd_cliente,
     }
 }
 
-void atender_cliente(
-        int fd_cliente,
-        const catalog_t *catalog
-        ) {
+void atender_cliente(int fd_cliente, const catalog_t *catalog) {
     char origen[64];
     estado_sesion_t estado = SESION_INICIO;
+    vod_transfer_t transferencia = {.fd_archivo = -1};
 
     describir_origen(fd_cliente, origen, sizeof(origen));
     printf("[servidor] conexion admitida: %s\n", origen);
 
     for (;;) {
+        if (estado == SESION_VOD) {
+            vod_control_result_t resultado = vod_control_servir(
+                fd_cliente, &transferencia
+            );
+
+            /* Conservamos el descriptor del cliente; cerramos solo el archivo. */
+            vod_liberar(&transferencia);
+
+            if (resultado == VOD_CONTROL_COMPLETADO ||
+                resultado == VOD_CONTROL_CANCELADO ||
+                resultado == VOD_CONTROL_FALLO_LECTURA) {
+                estado = SESION_LISTA;
+                continue;
+            }
+
+            if (resultado == VOD_CONTROL_CERRAR) {
+                printf("[servidor] %s: cierre durante VOD\n", origen);
+                break;
+            }
+
+            fprintf(stderr,
+                    "[servidor] %s: fallo de conexion durante VOD\n", origen);
+            break;
+        }
+
         protocol_message_t msg;
         protocol_result_t r = protocol_recv_message(fd_cliente, &msg);
 
@@ -236,34 +339,44 @@ void atender_cliente(
             break;
         }
         if (r == PROTOCOL_TRUNCATED) {
-            fprintf(stderr, "[servidor] %s: mensaje truncado, se cierra la sesion\n", origen);
+            fprintf(stderr,
+                    "[servidor] %s: mensaje truncado, se cierra la sesion\n",
+                    origen);
             break;
         }
         if (r == PROTOCOL_IO_ERROR) {
-            fprintf(stderr, "[servidor] %s: error de red, se cierra la sesion\n", origen);
+            fprintf(stderr,
+                    "[servidor] %s: error de red, se cierra la sesion\n",
+                    origen);
             break;
         }
         if (r == PROTOCOL_NO_MEMORY) {
-            fprintf(stderr, "[servidor] %s: sin memoria para el mensaje recibido\n", origen);
+            fprintf(stderr,
+                    "[servidor] %s: sin memoria para el mensaje recibido\n",
+                    origen);
             break;
         }
         if (r == PROTOCOL_INVALID) {
-            fprintf(stderr, "[servidor] %s: mensaje malformado, se cierra la sesion\n", origen);
+            fprintf(stderr,
+                    "[servidor] %s: mensaje malformado, se cierra la sesion\n",
+                    origen);
             break;
         }
 
         protocol_result_t r_envio;
-
         if (estado == SESION_INICIO) {
             if (msg.header.type == PROTOCOL_MSG_SALUDO) {
-                r_envio = manejar_saludo(fd_cliente, msg.header.request_id, &estado);
+                r_envio = manejar_saludo(fd_cliente,
+                                         msg.header.request_id, &estado);
             } else {
-                r_envio = enviar_error(fd_cliente, msg.header.request_id,
-                                        PROTOCOL_STATUS_NO_PERMITIDO,
-                                        "debe saludar primero");
+                r_envio = enviar_error(fd_cliente,
+                                       msg.header.request_id,
+                                       PROTOCOL_STATUS_NO_PERMITIDO,
+                                       "debe saludar primero");
             }
         } else if (estado == SESION_LISTA) {
-            r_envio = despachar_en_lista(fd_cliente, &msg, &estado, catalog);
+            r_envio = despachar_en_lista(fd_cliente, &msg, &estado,
+                                         catalog, &transferencia);
         } else {
             protocol_message_free(&msg);
             break;
@@ -272,7 +385,9 @@ void atender_cliente(
         protocol_message_free(&msg);
 
         if (r_envio != PROTOCOL_OK) {
-            fprintf(stderr, "[servidor] %s: fallo al responder, se cierra la sesion\n", origen);
+            fprintf(stderr,
+                    "[servidor] %s: fallo al responder, se cierra la sesion\n",
+                    origen);
             break;
         }
         if (estado == SESION_CERRANDO) {
@@ -281,5 +396,6 @@ void atender_cliente(
         }
     }
 
+    vod_liberar(&transferencia);
     close(fd_cliente);
 }

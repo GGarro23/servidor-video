@@ -24,7 +24,7 @@ BUILD := build
 COMMON_SRC  := src/common/protocol.c
 CLIENTE_SRC := src/cliente/cliente.c src/cliente/args.c src/cliente/red.c \
                src/cliente/ops.c src/cliente/player.c
-SERVIDOR_SRC := $(wildcard src/servidor/*.c)
+SERVIDOR_SRC := $(filter-out src/servidor/servidor.c,$(wildcard src/servidor/*.c))
 
 COMMON_OBJ   := $(patsubst %.c,$(BUILD)/%.o,$(COMMON_SRC))
 CLIENTE_OBJ  := $(patsubst %.c,$(BUILD)/%.o,$(CLIENTE_SRC))
@@ -63,6 +63,33 @@ $(BUILD)/tests/test_timeline: tests/test_timeline.c src/servidor/timeline.c
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) $^ -o $@
 
+# Prueba del catalogo
+UNIT_TESTS += $(BUILD)/tests/test_catalog
+
+$(BUILD)/tests/test_catalog: tests/test_catalog.c src/servidor/catalog.c
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) $^ -o $@
+
+# Prueba de transferencia VOD
+UNIT_TESTS += $(BUILD)/tests/test_vod
+
+$(BUILD)/tests/test_vod: tests/test_vod.c \
+                       src/servidor/vod.c \
+                       src/servidor/catalog.c \
+                       src/common/protocol.c
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) $^ -o $@
+
+# Prueba de cancelacion y cierre durante VOD
+UNIT_TESTS += $(BUILD)/tests/test_vod_control
+
+$(BUILD)/tests/test_vod_control: tests/test_vod_control.c \
+                               src/servidor/vod_control.c \
+                               src/common/protocol.c
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) $^ -o $@
+
+# Ejecutar todas las pruebas
 test: $(UNIT_TESTS)
 	@for t in $(UNIT_TESTS); do echo "\n== $$t"; $$t || exit 1; done
 	@echo "\nTodas las pruebas unitarias pasaron."
@@ -71,3 +98,4 @@ clean:
 	rm -rf $(BUILD) cliente servidor
 
 .PHONY: all debug test clean
+
