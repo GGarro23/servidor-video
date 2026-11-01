@@ -13,9 +13,9 @@
 
 /* Candidatos, en orden de preferencia. Cada fila termina en NULL.
  * El marcador "%F" se sustituye por la ruta del archivo. */
-static const char *const CAND_STDIN[][8] = {
+static const char *const CAND_STDIN[][10] = {
     { "mpv",    "--really-quiet", "--force-window=yes", "-", NULL },
-    { "ffplay", "-loglevel", "error", "-autoexit", "-i", "pipe:0", NULL },
+    { "ffplay", "-loglevel", "error", "-autoexit", "-sync", "video", "-i", "pipe:0", NULL },
     { "cvlc",   "--play-and-exit", "-", NULL },
     { "vlc",    "-", NULL },
 };

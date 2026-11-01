@@ -860,3 +860,45 @@ protocol_result_t protocol_encode_catalog(
     return PROTOCOL_OK;
 }
 
+protocol_result_t protocol_encode_emission(
+    uint64_t cycle_duration_ms,
+    uint64_t position_ms,
+    const uint8_t *name,
+    uint16_t name_length,
+    uint8_t *out,
+    size_t capacity,
+    size_t *written
+) {
+    if (name == NULL || out == NULL || written == NULL) {
+        return PROTOCOL_INVALID;
+    }
+
+    *written = 0;
+
+    // Mismas reglas que protocol_validate_payload para EMISION.
+    if (cycle_duration_ms == 0 || position_ms >= cycle_duration_ms) {
+        return PROTOCOL_INVALID;
+    }
+
+    // 8 bytes de duracion + 8 de posicion + (2 + nombre).
+    if (capacity < 16u + 2u + (size_t)name_length) {
+        return PROTOCOL_INVALID;
+    }
+
+    for (int i = 0; i < 8; i++) {
+        out[i]     = (uint8_t)(cycle_duration_ms >> (56 - 8 * i));
+        out[8 + i] = (uint8_t)(position_ms >> (56 - 8 * i));
+    }
+
+    // El nombre se valida y se escribe con el codificador existente.
+    size_t name_written = 0;
+    protocol_result_t r = protocol_encode_name(
+        name, name_length, out + 16, capacity - 16u, &name_written);
+    if (r != PROTOCOL_OK) {
+        return r;
+    }
+
+    *written = 16u + name_written;
+    return PROTOCOL_OK;
+}
+

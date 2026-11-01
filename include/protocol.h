@@ -134,5 +134,15 @@ protocol_result_t protocol_encode_catalog(
     size_t capacity,
     size_t *written
 );
+
+protocol_result_t protocol_encode_emission(
+    uint64_t cycle_duration_ms,
+    uint64_t position_ms,
+    const uint8_t *name,
+    uint16_t name_length,
+    uint8_t *out,
+    size_t capacity,
+    size_t *written);
+    
 //cierre de protocol_h
 #endif

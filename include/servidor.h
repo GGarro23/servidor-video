@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include "catalog.h"
+#include "canal.h"
 
 typedef enum {
     MODO_FIFO,
@@ -28,7 +29,10 @@ int red_crear_escucha(const config_servidor_t *config);
 
 void atender_cliente(
     int fd_cliente,
-    const catalog_t *catalog
+    const catalog_t *catalog,
+    const canal_t *canal
 );
+
+int servidor_detencion_solicitada(void);
 
 #endif //SERVIDOR_VIDEO_SERVIDOR_H

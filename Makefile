@@ -90,6 +90,13 @@ $(BUILD)/tests/test_vod_control: tests/test_vod_control.c \
 	$(CC) $(TEST_CFLAGS) $^ -o $@
 
 # Ejecutar todas las pruebas
+# Prueba del canal (necesita canal.c y timeline.c)
+UNIT_TESTS += $(BUILD)/tests/test_canal
+
+$(BUILD)/tests/test_canal: tests/test_canal.c src/servidor/canal.c src/servidor/timeline.c
+	@mkdir -p $(dir $@)
+	$(CC) $(TEST_CFLAGS) $^ -o $@
+
 test: $(UNIT_TESTS)
 	@for t in $(UNIT_TESTS); do echo "\n== $$t"; $$t || exit 1; done
 	@echo "\nTodas las pruebas unitarias pasaron."

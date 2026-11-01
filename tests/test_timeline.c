@@ -44,6 +44,6 @@ int main(void) {
     uint64_t a = timeline_ahora_ms(), b = timeline_ahora_ms(); assert(b >= a);
     assert(timeline_iniciar(&t, 1000)==TIMELINE_OK && timeline_posicion_actual(&t,&p)==TIMELINE_OK && p<1000);
     
-    printf("Todas las pruebas de timeline pasaron correctamente.\n");
+    printf("TPruebas del timeline superadas.\n");
     return 0;
 }

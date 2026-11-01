@@ -1,4 +1,5 @@
 #include "servidor.h"
+#include "canal.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -15,12 +16,17 @@
 #define ERR_INTERNO    5
 
 #define BACKLOG_POR_DEFECTO 16
+#define CANAL_MAX_ELEMENTOS_CLI 16
 
 static volatile sig_atomic_t seguir_ejecutando = 1;
 
 static void manejar_senal(int señal) {
     (void)señal;
     seguir_ejecutando = 0;
+}
+
+int servidor_detencion_solicitada(void) {
+    return !seguir_ejecutando;
 }
 
 static void instalar_manejo_de_senales(void) {
@@ -42,6 +48,7 @@ static void imprimir_ayuda(const char *nombre_programa) {
     printf("  -p, --puerto <PUERTO>    Puerto de escucha (requerido)\n");
     printf("  -a, --almacen <RUTA>     Directorio de contenido bajo demanda\n");
     printf("  -c, --canal <RUTA>       Archivo o lista del contenido del canal en vivo\n");
+    printf("  -s, --separacion <SEG>   Pausa entre ciclos del canal, en segundos (por omision 0)\n");
     printf("  -b, --backlog <N>        Profundidad de la cola de admision (por omision %d)\n",
            BACKLOG_POR_DEFECTO);
     printf("  -h, --help               Muestra esta ayuda\n");
@@ -69,6 +76,7 @@ int main(int argc, char *argv[]) {
     config_servidor_t config;
     char ruta_almacen[256] = "";
     char ruta_canal[256] = "";
+    uint64_t separacion_ms = 0;
     int modo_fijado = 0;
     int puerto_fijado = 0;
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -105,6 +113,14 @@ int main(int argc, char *argv[]) {
             strncpy(ruta_almacen, argv[++i], sizeof(ruta_almacen) - 1);
         } else if ((strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--canal") == 0) && i + 1 < argc) {
             strncpy(ruta_canal, argv[++i], sizeof(ruta_canal) - 1);
+        } else if ((strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--separacion") == 0) && i + 1 < argc) {
+            char *fin = NULL;
+            long seg = strtol(argv[++i], &fin, 10);
+            if (*fin != '\0' || seg < 0 || seg > 86400) {
+                fprintf(stderr, "Error: separacion invalida (-s). Debe estar entre 0 y 86400 segundos.\n");
+                return ERR_ARGS;
+            }
+            separacion_ms = (uint64_t)seg * 1000u;
         } else if ((strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--backlog") == 0) && i + 1 < argc) {
             int backlog = atoi(argv[++i]);
             if (backlog <= 0) {
@@ -157,13 +173,41 @@ int main(int argc, char *argv[]) {
     printf("[servidor] videos encontrados: %zu\n",
        catalog_count(catalog));
 
+    //Canal en vivo. Se crea una vez, antes de aceptar clientes (y antes de cualquier fork o hilo), y despues es solo de lectura.
+    canal_t *canal = NULL;
     if (ruta_canal[0]) {
-        printf("[servidor] contenido del canal: %s (canal aun no implementado)\n", ruta_canal);
+        canal_elemento_cfg_t elementos[CANAL_MAX_ELEMENTOS_CLI];
+        size_t cantidad = 0;
+        char *resto = NULL;
+
+        for (char *ruta = strtok_r(ruta_canal, ",", &resto);
+             ruta != NULL && cantidad < CANAL_MAX_ELEMENTOS_CLI;
+             ruta = strtok_r(NULL, ",", &resto)) {
+            elementos[cantidad].ruta = ruta;
+            elementos[cantidad].duracion_ms = 0;    //0 = sondear la duracion del archivo.
+            cantidad++;
+        }
+
+        canal_config_t config_canal = { elementos, cantidad, separacion_ms };
+        canal_result_t rc = cantidad > 0 ? canal_create(&config_canal, &canal) : CANAL_INVALID;
+        if (rc != CANAL_OK) {
+            fprintf(stderr, "[servidor] aviso: no se pudo crear el canal en vivo (%s); "
+                            "se ofrece solo el servicio bajo demanda\n", canal_result_str(rc));
+            canal = NULL;
+        } else {
+            printf("[servidor] canal en vivo: %zu elemento(s), ciclo de %.1f s\n",
+                   canal_cantidad(canal), (double)canal_ciclo_ms(canal) / 1000.0);
+            for (size_t k = 0; k < canal_cantidad(canal); k++) {
+                printf("[servidor]   %zu: %s (%.1f s)\n", k, canal_nombre(canal, k),
+                       (double)canal_duracion_ms(canal, k) / 1000.0);
+            }
+        }
     }
 
    int fd_escucha = red_crear_escucha(&config);
 
     if (fd_escucha < 0) {
+        canal_destroy(canal);
         catalog_destroy(catalog);
         return ERR_RED;
     }
@@ -183,11 +227,12 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        atender_cliente(fd_cliente,catalog);
+        atender_cliente(fd_cliente, catalog, canal);
     }
 
     printf("[servidor] senal de detencion recibida, cerrando de forma ordenada\n");
     close(fd_escucha);
+    canal_destroy(canal);
     catalog_destroy(catalog);
     printf("[servidor] detenido\n");
 
