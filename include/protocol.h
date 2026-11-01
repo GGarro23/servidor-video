@@ -26,6 +26,12 @@ typedef struct {
     uint8_t *payload;
 } protocol_message_t;
 
+typedef struct {
+    const uint8_t *name;
+    uint16_t name_length;
+    uint64_t file_size;
+} protocol_catalog_entry_t;
+
 //ENUMS de los tipos, estados y resultados.
 typedef enum {
     PROTOCOL_MSG_SALUDO = 1,
@@ -120,6 +126,14 @@ protocol_result_t protocol_decode_vod_accepted(
 protocol_result_t protocol_validate_payload(
     const protocol_header_t *header,
     const uint8_t *payload);
+
+protocol_result_t protocol_encode_catalog(
+    const protocol_catalog_entry_t *entries,
+    uint16_t entry_count,
+    uint8_t *out,
+    size_t capacity,
+    size_t *written
+);
 
 //cierre de protocol_h
 #endif

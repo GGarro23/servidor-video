@@ -755,4 +755,109 @@ void protocol_message_free(
     *message = (protocol_message_t){0};
 }
 
+protocol_result_t protocol_encode_catalog(
+    const protocol_catalog_entry_t *entries,
+    uint16_t entry_count,
+    uint8_t *out,
+    size_t capacity,
+    size_t *written
+) {
+    if (written == NULL) {
+        return PROTOCOL_INVALID;
+    }
 
+    *written = 0;
+
+    if (out == NULL ||
+        entry_count > 255 ||
+        (entry_count > 0 && entries == NULL)) {
+        return PROTOCOL_INVALID;
+    }
+
+    // Primera pasada: validar entradas y calcular tamaño total.
+    size_t required = 2;
+
+    for (uint16_t i = 0; i < entry_count; i++) {
+        const protocol_catalog_entry_t *entry = &entries[i];
+
+        if (entry->name == NULL ||
+            entry->name_length == 0 ||
+            entry->name_length > PROTOCOL_MAX_NAME) {
+            return PROTOCOL_INVALID;
+        }
+
+        // Reutilizar la validacion de nombres existente.
+        uint8_t temp[2 + PROTOCOL_MAX_NAME];
+        size_t name_written = 0;
+
+        if (protocol_encode_name(
+                entry->name,
+                entry->name_length,
+                temp,
+                sizeof(temp),
+                &name_written
+            ) != PROTOCOL_OK) {
+            return PROTOCOL_INVALID;
+        }
+
+        // Comprobar que no existan nombres duplicados.
+        for (uint16_t j = 0; j < i; j++) {
+            if (entries[j].name_length == entry->name_length &&
+                memcmp(entries[j].name,
+                       entry->name,
+                       entry->name_length) == 0) {
+                return PROTOCOL_INVALID;
+            }
+        }
+
+        // Cada entrada: longitud + nombre + tamaño del archivo.
+        required += name_written + 8u;
+
+        if (required > PROTOCOL_MAX_PAYLOAD) {
+            return PROTOCOL_INVALID;
+        }
+    }
+
+    if (capacity < required) {
+        return PROTOCOL_INVALID;
+    }
+
+    // Segunda pasada: serializar.
+    out[0] = (uint8_t)(entry_count >> 8);
+    out[1] = (uint8_t)entry_count;
+
+    size_t offset = 2;
+
+    for (uint16_t i = 0; i < entry_count; i++) {
+        const protocol_catalog_entry_t *entry = &entries[i];
+        size_t name_written = 0;
+
+        protocol_result_t result = protocol_encode_name(
+            entry->name,
+            entry->name_length,
+            out + offset,
+            capacity - offset,
+            &name_written
+        );
+
+        if (result != PROTOCOL_OK) {
+            return result;
+        }
+
+        offset += name_written;
+
+        uint64_t size = entry->file_size;
+
+        out[offset++] = (uint8_t)(size >> 56);
+        out[offset++] = (uint8_t)(size >> 48);
+        out[offset++] = (uint8_t)(size >> 40);
+        out[offset++] = (uint8_t)(size >> 32);
+        out[offset++] = (uint8_t)(size >> 24);
+        out[offset++] = (uint8_t)(size >> 16);
+        out[offset++] = (uint8_t)(size >> 8);
+        out[offset++] = (uint8_t)size;
+    }
+
+    *written = offset;
+    return PROTOCOL_OK;
+}
