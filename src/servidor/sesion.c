@@ -26,7 +26,7 @@
 //Tamaño de cada bloque DATOS del canal (el máximo del protocolo es 65536).
 #define CANAL_BLOQUE_BYTES 32768u
 //Cuánto contenido (en ms) puede ir adelantado el envío respecto a la línea de tiempo. Da colchón al reproductor sin romper la sincronía (RNF-04 tolera 2 s).
-#define CANAL_ADELANTO_MS 1000u
+#define CANAL_ADELANTO_MS 3000u //Le puse más tiempo porque en videos pesados se empieza a laguear.
 //Pausa entre revisiones cuando no hay nada que enviar (también es lo que tarda en notar un SALIR).
 #define CANAL_PAUSA_MS 10
 //Si el cliente no consume nada en este tiempo se abandona la sesión, para no dejar el servidor colgado en FIFO.
