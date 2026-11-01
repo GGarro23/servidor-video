@@ -138,18 +138,35 @@ int main(int argc, char *argv[]) {
                nombre_modo);
     }
 
-    if (ruta_almacen[0]) {
-        printf("[servidor] almacen de contenido: %s (catalogo aun no implementado)\n", ruta_almacen);
+   if (ruta_almacen[0] == '\0') {
+    fprintf(stderr, "Error: falta el directorio de videos (-a).\n");
+    return ERR_ARGS;
     }
+
+    catalog_t *catalog = NULL;
+
+    catalog_result_t resultado =
+    catalog_create(ruta_almacen, &catalog);
+
+    if (resultado != CATALOG_OK) {
+        fprintf(stderr, "[servidor] Error al inicializar el catalogo\n");
+        return ERR_CONTENIDO;
+    }
+
+    printf("[servidor] almacen: %s\n", ruta_almacen);
+    printf("[servidor] videos encontrados: %zu\n",
+       catalog_count(catalog));
+
     if (ruta_canal[0]) {
         printf("[servidor] contenido del canal: %s (canal aun no implementado)\n", ruta_canal);
     }
 
-    int fd_escucha = red_crear_escucha(&config);
+   int fd_escucha = red_crear_escucha(&config);
+
     if (fd_escucha < 0) {
+        catalog_destroy(catalog);
         return ERR_RED;
     }
-
     instalar_manejo_de_senales();
     printf("[servidor] escuchando; Ctrl+C para detener de forma ordenada\n");
 
@@ -166,11 +183,12 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        atender_cliente(fd_cliente);
+        atender_cliente(fd_cliente,catalog);
     }
 
     printf("[servidor] senal de detencion recibida, cerrando de forma ordenada\n");
     close(fd_escucha);
+    catalog_destroy(catalog);
     printf("[servidor] detenido\n");
 
     return EXITO;

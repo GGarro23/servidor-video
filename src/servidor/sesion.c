@@ -1,6 +1,7 @@
 #include "servidor.h"
 #include "protocol.h"
 
+#include <stdlib.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -88,27 +89,111 @@ static protocol_result_t manejar_saludo(int fd_cliente, uint32_t id_solicitud,
     return r;
 }
 
-static protocol_result_t manejar_listar(int fd_cliente, uint32_t id_solicitud) {
-    uint8_t payload_vacio[2] = {0, 0};
+
+
+static protocol_result_t manejar_listar(
+    int fd_cliente,
+    uint32_t id_solicitud,
+    const catalog_t *catalog
+) {
+    if (catalog == NULL) {
+        return enviar_error(fd_cliente, id_solicitud,
+                            PROTOCOL_STATUS_INTERNO,
+                            "catalogo no disponible");
+    }
+
+    protocol_catalog_entry_t entradas[255];
+    uint16_t cantidad = 0;
+    size_t requerido = 2;  // u16 entry_count
+
+    // Recorrer las entradas disponibles del catálogo.
+    for (size_t i = 0; i < catalog_count(catalog); i++) {
+        const catalog_entry_t *archivo = catalog_at(catalog, i);
+
+        if (archivo == NULL || archivo->name == NULL) {
+            return enviar_error(fd_cliente, id_solicitud,
+                                PROTOCOL_STATUS_INTERNO,
+                                "error interno del catalogo");
+        }
+
+        if (!archivo->available) {
+            continue;
+        }
+
+        size_t longitud = strlen(archivo->name);
+
+        if (longitud == 0 || longitud > PROTOCOL_MAX_NAME) {
+            return enviar_error(fd_cliente, id_solicitud,
+                                PROTOCOL_STATUS_INTERNO,
+                                "entrada invalida del catalogo");
+        }
+
+        // Comprobar los límites del protocolo antes de codificar.
+        if (cantidad == 255 ||
+            requerido + 2u + longitud + 8u > PROTOCOL_MAX_PAYLOAD) {
+            return enviar_error(fd_cliente, id_solicitud,
+                                PROTOCOL_STATUS_CAPACIDAD,
+                                "catalogo supera el limite permitido");
+        }
+
+        entradas[cantidad].name = (const uint8_t *)archivo->name;
+        entradas[cantidad].name_length = (uint16_t)longitud;
+        entradas[cantidad].file_size = archivo->size_bytes;
+
+        cantidad++;
+        requerido += 2u + longitud + 8u;
+    }
+
+    // Reservar memoria para el payload.
+    uint8_t *payload = malloc(requerido);
+
+    if (payload == NULL) {
+        return enviar_error(fd_cliente, id_solicitud,
+                            PROTOCOL_STATUS_INTERNO,
+                            "no se pudo preparar el catalogo");
+    }
+
+    size_t escritos = 0;
+
+    protocol_result_t resultado = protocol_encode_catalog(
+        entradas, cantidad, payload, requerido, &escritos
+    );
+
+    if (resultado != PROTOCOL_OK) {
+        free(payload);
+        return enviar_error(fd_cliente, id_solicitud,
+                            PROTOCOL_STATUS_INTERNO,
+                            "error al codificar el catalogo");
+    }
+
+    // Preparar la cabecera CATALOGO.
     protocol_header_t cabecera;
 
-    cabecera.version       = PROTOCOL_VERSION;
-    cabecera.type           = PROTOCOL_MSG_CATALOGO;
-    cabecera.status         = PROTOCOL_STATUS_EXITO;
-    cabecera.request_id     = id_solicitud;
-    cabecera.payload_length = sizeof(payload_vacio);
+    cabecera.version = PROTOCOL_VERSION;
+    cabecera.type = PROTOCOL_MSG_CATALOGO;
+    cabecera.status = PROTOCOL_STATUS_EXITO;
+    cabecera.request_id = id_solicitud;
+    cabecera.payload_length = (uint32_t)escritos;
 
-    return protocol_send_message(fd_cliente, &cabecera, payload_vacio);
+    // Enviar el catálogo por TCP.
+    resultado = protocol_send_message(
+        fd_cliente, &cabecera, payload
+    );
+
+    free(payload);
+
+    return resultado;
 }
 
 static protocol_result_t despachar_en_lista(int fd_cliente,
                                              const protocol_message_t *msg,
-                                             estado_sesion_t *estado) {
+                                             estado_sesion_t *estado,
+                                             const catalog_t *catalog) {
     uint32_t id = msg->header.request_id;
 
     switch ((protocol_message_type_t)msg->header.type) {
         case PROTOCOL_MSG_LISTAR:
-            return manejar_listar(fd_cliente, id);
+            return manejar_listar(fd_cliente, id, catalog);
 
         case PROTOCOL_MSG_ABRIR:
             return enviar_error(fd_cliente, id, PROTOCOL_STATUS_NO_HALLADO,
@@ -132,7 +217,10 @@ static protocol_result_t despachar_en_lista(int fd_cliente,
     }
 }
 
-void atender_cliente(int fd_cliente) {
+void atender_cliente(
+        int fd_cliente,
+        const catalog_t *catalog
+        ) {
     char origen[64];
     estado_sesion_t estado = SESION_INICIO;
 
@@ -175,7 +263,7 @@ void atender_cliente(int fd_cliente) {
                                         "debe saludar primero");
             }
         } else if (estado == SESION_LISTA) {
-            r_envio = despachar_en_lista(fd_cliente, &msg, &estado);
+            r_envio = despachar_en_lista(fd_cliente, &msg, &estado, catalog);
         } else {
             protocol_message_free(&msg);
             break;

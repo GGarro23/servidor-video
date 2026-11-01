@@ -6,6 +6,7 @@
 #define SERVIDOR_VIDEO_SERVIDOR_H
 
 #include <stdint.h>
+#include "catalog.h"
 
 typedef enum {
     MODO_FIFO,
@@ -25,6 +26,9 @@ typedef struct {
 
 int red_crear_escucha(const config_servidor_t *config);
 
-void atender_cliente(int fd_cliente);
+void atender_cliente(
+    int fd_cliente,
+    const catalog_t *catalog
+);
 
 #endif //SERVIDOR_VIDEO_SERVIDOR_H
