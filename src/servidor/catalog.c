@@ -75,7 +75,6 @@ static bool valid_utf8(const unsigned char *text, size_t length) {
     return true;
 }
 
-/* Una extensión conocida no garantiza que el archivo sea reproducible. */
 static bool is_video_extension(const char *name) {
     static const char *const extensions[] = {
         ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".mpeg", ".mpg"
@@ -109,7 +108,6 @@ static bool valid_catalog_name(const char *name) {
            is_video_extension(name);
 }
 
-/* Verifica que seguimos viendo el mismo archivo sin cambios de tamaño o fecha. */
 static bool same_file(const struct stat *before, const struct stat *now) {
     return S_ISREG(now->st_mode) && now->st_size >= 0 &&
            before->st_dev == now->st_dev &&
@@ -184,7 +182,6 @@ catalog_result_t catalog_create(const char *directory, catalog_t **out) {
         return CATALOG_IO_ERROR;
     }
 
-    /* fdopendir() adquiere el descriptor que recibe: usamos una copia. */
     int scan_fd = dup(catalog->directory_fd);
     if (scan_fd < 0) {
         catalog_destroy(catalog);
