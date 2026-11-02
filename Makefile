@@ -3,6 +3,12 @@
 #    make              -> produccion (-O2, sin avisos)
 #    make debug        -> depuracion (-g -O0, sanitizers)
 #    make test         -> pruebas unitarias del protocolo
+#    make test-integracion -> pruebas de integracion (servidor+cliente
+#                             reales: concurrencia, cliente contra mock,
+#                             sincronia del canal). Mas lentas (~1 min);
+#                             no corren con 'make test' para no demorar
+#                             el ciclo rapido de desarrollo.
+#    make test-all     -> test + test-integracion
 #    make clean
 # ==========================================================
 CC       ?= gcc
@@ -97,11 +103,25 @@ $(BUILD)/tests/test_canal: tests/test_canal.c src/servidor/canal.c src/servidor/
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) $^ -o $@
 
-test: $(UNIT_TESTS)
+test: $(UNIT_TESTS) servidor
 	@for t in $(UNIT_TESTS); do echo "\n== $$t"; $$t || exit 1; done
+	@echo "\n== tests/test_protocol_version.py"
+	@python3 tests/test_protocol_version.py
 	@echo "\nTodas las pruebas unitarias pasaron."
+
+test-integracion: all
+	@echo "\n== tests/test_concurrencia.sh (FIFO, FORKED, THREADED)"
+	bash tests/test_concurrencia.sh
+	@echo "\n== tests/test_cliente_vod.sh (cliente contra servidor simulado)"
+	bash tests/test_cliente_vod.sh
+	@echo "\n== tests/diagnostico_sincronia.sh (sincronia del canal, RNF-04)"
+	bash tests/diagnostico_sincronia.sh
+	@echo "\nTodas las pruebas de integracion pasaron."
+
+test-all: test test-integracion
+	@echo "\nTodas las pruebas (unitarias + integracion) pasaron."
 
 clean:
 	rm -rf $(BUILD) cliente servidor
 
-.PHONY: all debug test clean
+.PHONY: all debug test test-integracion test-all clean

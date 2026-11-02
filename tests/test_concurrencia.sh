@@ -72,7 +72,7 @@ probar() {
     [ "$ZOMB" = 0 ] && ok "$M: sin zombis" || fail "$M: $ZOMB zombis"
 }
 
-MODOS=${1:-"FIFO FORKED THREADED"}q
+MODOS=${1:-"FIFO FORKED THREADED"}
 for m in $MODOS; do probar $m; done
 echo
 [ $FALLOS = 0 ] && echo "TODO OK" || echo "$FALLOS comprobacion(es) fallaron"
