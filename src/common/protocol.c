@@ -106,8 +106,18 @@ protocol_result_t protocol_decode_header(
 
     // 6. Validar la versión.
     if (header.version != PROTOCOL_VERSION) {
-        return PROTOCOL_INVALID;
-    }
+
+        // Comprobar que el ID y la longitud sean seguros.
+        if (header.request_id == 0 ||
+            header.payload_length > PROTOCOL_MAX_PAYLOAD) {
+            return PROTOCOL_INVALID;
+        }
+
+    // Conservar la cabecera para poder responder ERROR(VERSION).
+    *out = header;
+
+    return PROTOCOL_VERSION_MISMATCH;
+}
 
     // 7. Validar el tipo.
     if (header.type < PROTOCOL_MSG_SALUDO ||
@@ -698,10 +708,14 @@ protocol_result_t protocol_recv_message(
         &header
     );
 
+    if (result == PROTOCOL_VERSION_MISMATCH) {
+        out->header = header;
+        return PROTOCOL_VERSION_MISMATCH;
+    }
+
     if (result != PROTOCOL_OK) {
         return result;
     }
-
     uint8_t *payload = NULL;
 
     // Reservar memoria solamente si hay payload.

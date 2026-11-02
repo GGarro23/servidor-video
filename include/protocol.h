@@ -69,7 +69,8 @@ typedef enum {
     PROTOCOL_TRUNCATED,
     PROTOCOL_INVALID,
     PROTOCOL_IO_ERROR,
-    PROTOCOL_NO_MEMORY
+    PROTOCOL_NO_MEMORY,
+    PROTOCOL_VERSION_MISMATCH
 } protocol_result_t;
 
 //declaracion de funciones publicas

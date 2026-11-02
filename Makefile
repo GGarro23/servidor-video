@@ -97,9 +97,11 @@ $(BUILD)/tests/test_canal: tests/test_canal.c src/servidor/canal.c src/servidor/
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) $^ -o $@
 
-test: $(UNIT_TESTS)
+test: $(UNIT_TESTS) servidor
 	@for t in $(UNIT_TESTS); do echo "\n== $$t"; $$t || exit 1; done
-	@echo "\nTodas las pruebas unitarias pasaron."
+	@echo "\n== tests/test_protocol_version.py"
+	@python3 tests/test_protocol_version.py
+	@echo "\nTodas las pruebas pasaron."
 
 clean:
 	rm -rf $(BUILD) cliente servidor

@@ -149,8 +149,6 @@ static protocol_result_t manejar_saludo(int fd_cliente, uint32_t id_solicitud,
     return r;
 }
 
-
-
 static protocol_result_t manejar_listar(
     int fd_cliente,
     uint32_t id_solicitud,
@@ -410,7 +408,7 @@ static protocol_result_t atender_canal(int fd_cliente, uint32_t id_unir,
                 espera_ms = CANAL_PAUSA_MS;
             }
         } else {
-            //Control de ritmo: no se adelanta más de CANAL_ADELANTO_MS (o un cuarto del elemento) sobre la línea de tiempo. 
+            //Control de ritmo: no se adelanta más de CANAL_ADELANTO_MS (o un cuarto del elemento) sobre la línea de tiempo.
             if (!n.en_separacion && n.indice == cur) {
                 uint64_t dur = canal_duracion_ms(canal, cur);
                 uint64_t adelanto = CANAL_ADELANTO_MS < dur / 4 ? CANAL_ADELANTO_MS : dur / 4;
@@ -620,6 +618,21 @@ void atender_cliente(
                     "[servidor] %s: sin memoria para el mensaje recibido\n",
                     origen);
             break;
+        }
+
+        if (r == PROTOCOL_VERSION_MISMATCH) {
+        fprintf(stderr,
+                "[servidor] %s: version del protocolo incompatible\n",
+                origen);
+
+        enviar_error(
+            fd_cliente,
+            msg.header.request_id,
+            PROTOCOL_STATUS_VERSION,
+            "version del protocolo incompatible"
+        );
+
+        break;
         }
         if (r == PROTOCOL_INVALID) {
             fprintf(stderr,
