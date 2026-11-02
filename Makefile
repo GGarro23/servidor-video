@@ -8,7 +8,7 @@
 CC       ?= gcc
 WARN     := -Wall -Wextra -Wpedantic -std=c11 -D_POSIX_C_SOURCE=200809L
 INCLUDES := -Iinclude
-LDLIBS   :=
+LDLIBS   := -pthread
 
 # Modo (release por defecto). 'make debug' lo cambia.
 MODE ?= release
@@ -17,7 +17,7 @@ ifeq ($(MODE),debug)
 else
   OPT := -O2 -DNDEBUG
 endif
-CFLAGS := $(WARN) $(OPT) $(INCLUDES)
+CFLAGS := $(WARN) $(OPT) $(INCLUDES) -pthread
 
 BUILD := build
 
@@ -105,4 +105,3 @@ clean:
 	rm -rf $(BUILD) cliente servidor
 
 .PHONY: all debug test clean
-

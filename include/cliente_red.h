@@ -34,6 +34,12 @@ protocol_result_t red_enviar(int fd, uint8_t tipo, uint32_t id,
 recv_resultado_t red_recibir(int fd, protocol_message_t *msg,
                              int timeout_s, int respetar_ctrl_c);
 
+/* Espera hasta 'ms' a que haya algo que leer SIN consumirlo.
+ * Devuelve 1 si hay datos (o el otro extremo cerro), 0 si pasó el plazo o una
+ * señal interrumpio la espera, -1 si poll() fallo. A diferencia de
+ * red_recibir(), un plazo vencido aqui no es un error: es "silencio". */
+int red_esperar_datos(int fd, int ms);
+
 /* Traducción a texto / códigos de salida. */
 const char *red_texto_recv(recv_resultado_t r);
 int         red_codigo_salida_recv(recv_resultado_t r);

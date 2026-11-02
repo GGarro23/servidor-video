@@ -32,12 +32,54 @@
 //Si el cliente no consume nada en este tiempo se abandona la sesión, para no dejar el servidor colgado en FIFO.
 #define CANAL_ENVIO_TIMEOUT_S 10
 
+//Inactividad maxima esperando una solicitud (RF seccion 7.5). 0 = sin limite.
+#define INACTIVIDAD_INICIO_S 30
+#define INACTIVIDAD_LISTA_S  600
+//Rebanada de espera: permite notar la detencion del servidor aun con el cliente callado.
+#define ESPERA_REBANADA_MS 500
+//Si un mensaje queda a medias (cabecera/payload incompleto) mas de este tiempo, se cierra.
+#define RECV_MENSAJE_TIMEOUT_S 30
+
+typedef enum {
+    ESPERA_LISTA,
+    ESPERA_DETENCION,
+    ESPERA_INACTIVIDAD,
+    ESPERA_ERROR
+} espera_t;
+
 typedef enum {
     SESION_INICIO,
     SESION_LISTA,
     SESION_VOD,
     SESION_CERRANDO
 } estado_sesion_t;
+
+//Espera a que haya algo que leer sin bloquearse para siempre: revisa la detencion del servidor
+//(necesario en FORKED/THREADED/FIFO para cerrar con clientes inactivos) y la inactividad.
+static espera_t esperar_solicitud(int fd, unsigned limite_s) {
+    unsigned transcurrido_ms = 0;
+
+    for (;;) {
+        if (servidor_detencion_solicitada()) {
+            return ESPERA_DETENCION;
+        }
+        struct pollfd p = { fd, POLLIN, 0 };
+        int n = poll(&p, 1, ESPERA_REBANADA_MS);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return ESPERA_ERROR;
+        }
+        if (n > 0) {
+            return ESPERA_LISTA;   //datos o EOF/HUP: recv_message lo distingue
+        }
+        transcurrido_ms += ESPERA_REBANADA_MS;
+        if (limite_s != 0 && transcurrido_ms >= limite_s * 1000u) {
+            return ESPERA_INACTIVIDAD;
+        }
+    }
+}
 
 static void describir_origen(int fd_cliente, char *buf, size_t capacidad) {
     struct sockaddr_storage direccion;
@@ -57,7 +99,7 @@ static void describir_origen(int fd_cliente, char *buf, size_t capacidad) {
         return;
     }
 
-    snprintf(buf, capacidad, "%s:%s", host, puerto);
+    snprintf(buf, capacidad, "%.45s:%.5s", host, puerto);
 }
 
 static protocol_result_t enviar_error(int fd_cliente, uint32_t id_solicitud,
@@ -509,6 +551,9 @@ void atender_cliente(
     describir_origen(fd_cliente, origen, sizeof(origen));
     printf("[servidor] conexion admitida: %s\n", origen);
 
+    struct timeval tv_recv = { RECV_MENSAJE_TIMEOUT_S, 0 };
+    setsockopt(fd_cliente, SOL_SOCKET, SO_RCVTIMEO, &tv_recv, sizeof(tv_recv));
+
     for (;;) {
         if (estado == SESION_VOD) {
             vod_control_result_t resultado = vod_control_servir(
@@ -532,6 +577,22 @@ void atender_cliente(
 
             fprintf(stderr,
                     "[servidor] %s: fallo de conexion durante VOD\n", origen);
+            break;
+        }
+
+        espera_t espera = esperar_solicitud(
+            fd_cliente,
+            estado == SESION_INICIO ? INACTIVIDAD_INICIO_S : INACTIVIDAD_LISTA_S);
+        if (espera == ESPERA_DETENCION) {
+            printf("[servidor] %s: servidor detenido, se cierra la sesion\n", origen);
+            break;
+        }
+        if (espera == ESPERA_INACTIVIDAD) {
+            fprintf(stderr, "[servidor] %s: inactividad, se cierra la sesion\n", origen);
+            break;
+        }
+        if (espera == ESPERA_ERROR) {
+            fprintf(stderr, "[servidor] %s: error de red, se cierra la sesion\n", origen);
             break;
         }
 

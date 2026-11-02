@@ -396,6 +396,14 @@ int op_canal(int fd, const cliente_config_t *cfg, char **argv_reproductor)
         if (limite && ahora_ms() >= limite) { motivo = "tiempo de canal cumplido"; break; }
         if (argv_reproductor != NULL && !player_vivo(&pl)) { motivo = "reproductor cerrado"; break; }
 
+        /* Silencio NORMAL: el servidor no envia nada durante la separacion entre
+         * ciclos (ni mientras espera para no adelantarse a la linea de tiempo).
+         * Por eso -t NO se aplica a la espera de un mensaje nuevo: se espera en
+         * tramos de 1 s para seguir revisando el limite -c, el reproductor y
+         * Ctrl+C. Un servidor caido lo detecta el keepalive (red.c) y -t sigue
+         * protegiendo a un mensaje que llega a medias. */
+        if (red_esperar_datos(fd, 1000) == 0 && !red_interrumpido()) continue;
+
         r = red_recibir(fd, &m, cfg->timeout_s, 1);
         if (r == RECV_INTERRUMPIDO) {
             red_limpiar_interrupcion();

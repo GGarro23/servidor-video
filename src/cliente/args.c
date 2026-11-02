@@ -23,7 +23,8 @@ void args_ayuda(const char *programa, int a_stderr)
     fprintf(f, "  -f, --archivo <nombre>     Nombre del contenido tal como aparece en el catalogo\n");
     fprintf(f, "  -o, --destino <ruta>       Archivo o directorio donde guardar lo recibido\n\n");
     fprintf(f, "Opcionales:\n");
-    fprintf(f, "  -t, --timeout <seg>        Espera maxima de conexion/respuesta (defecto: 10, 0 = sin limite)\n");
+    fprintf(f, "  -t, --timeout <seg>        Espera maxima de conexion/respuesta (defecto: 10, 0 = sin limite).\n"
+                  "                             En 'canal' no limita los silencios entre ciclos\n");
     fprintf(f, "  -c, --tiempo-canal <seg>   Solo 'canal': duracion maxima de la conexion (defecto: indefinida)\n");
     fprintf(f, "  -r, --reproductor <cmd>    Comando del reproductor (defecto: mpv, ffplay o vlc, el primero que exista)\n");
     fprintf(f, "  -n, --sin-reproductor      No abrir reproductor (los datos se reciben y se descartan / guardan)\n");

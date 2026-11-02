@@ -5,6 +5,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -114,6 +116,16 @@ int red_conectar(const char *host, const char *puerto, int timeout_s, int verbos
                 setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
                 setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
             }
+            {   /* Detecta un servidor que desaparece sin cerrar la conexion (cable,
+                 * caida de la maquina): el sistema envia sondas y, si nadie responde
+                 * (~35 s), recv() falla. Es lo que permite no aplicar un timeout de
+                 * aplicacion mientras el canal esta en silencio (separacion). */
+                int activar = 1, inactivo_s = 20, intervalo_s = 5, sondas = 3;
+                setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &activar, sizeof activar);
+                setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &inactivo_s, sizeof inactivo_s);
+                setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intervalo_s, sizeof intervalo_s);
+                setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &sondas, sizeof sondas);
+            }
             if (verboso) {
                 fprintf(stdout, "Conexion TCP establecida con %s:%s\n", host, puerto);
             }
@@ -178,6 +190,14 @@ recv_resultado_t red_recibir(int fd, protocol_message_t *msg,
         return (errno == EAGAIN || errno == EWOULDBLOCK) ? RECV_TIMEOUT : RECV_ERROR;
     default:                 return RECV_ERROR;
     }
+}
+
+int red_esperar_datos(int fd, int ms)
+{
+    struct pollfd p = { .fd = fd, .events = POLLIN };
+    int n = poll(&p, 1, ms);
+    if (n < 0) return errno == EINTR ? 0 : -1;
+    return n > 0 ? 1 : 0;
 }
 
 const char *red_texto_recv(recv_resultado_t r)

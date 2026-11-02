@@ -1,7 +1,10 @@
 #include "servidor.h"
 #include "canal.h"
+#include "concurrencia.h"
 
+#include <errno.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,12 +20,17 @@
 
 #define BACKLOG_POR_DEFECTO 16
 #define CANAL_MAX_ELEMENTOS_CLI 16
+#define MAX_CLIENTES_POR_DEFECTO 64
+#define MAX_CLIENTES_TOPE 1024
 
-static volatile sig_atomic_t seguir_ejecutando = 1;
+//Bandera de detencion: la escribe el manejador de senal y la leen todos los hilos de sesion.
+static _Atomic sig_atomic_t seguir_ejecutando = 1;
 
 static void manejar_senal(int señal) {
     (void)señal;
+    int guardado = errno;
     seguir_ejecutando = 0;
+    errno = guardado;
 }
 
 int servidor_detencion_solicitada(void) {
@@ -49,6 +57,8 @@ static void imprimir_ayuda(const char *nombre_programa) {
     printf("  -a, --almacen <RUTA>     Directorio de contenido bajo demanda\n");
     printf("  -c, --canal <RUTA>       Archivo o lista del contenido del canal en vivo\n");
     printf("  -s, --separacion <SEG>   Pausa entre ciclos del canal, en segundos (por omision 0)\n");
+    printf("  -n, --max-clientes <N>   Maximo de clientes activos en FORKED/THREADED (por omision %d)\n",
+           MAX_CLIENTES_POR_DEFECTO);
     printf("  -b, --backlog <N>        Profundidad de la cola de admision (por omision %d)\n",
            BACKLOG_POR_DEFECTO);
     printf("  -h, --help               Muestra esta ayuda\n");
@@ -77,6 +87,7 @@ int main(int argc, char *argv[]) {
     char ruta_almacen[256] = "";
     char ruta_canal[256] = "";
     uint64_t separacion_ms = 0;
+    long max_clientes = MAX_CLIENTES_POR_DEFECTO;
     int modo_fijado = 0;
     int puerto_fijado = 0;
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -121,6 +132,14 @@ int main(int argc, char *argv[]) {
                 return ERR_ARGS;
             }
             separacion_ms = (uint64_t)seg * 1000u;
+        } else if ((strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "--max-clientes") == 0) && i + 1 < argc) {
+            char *fin = NULL;
+            max_clientes = strtol(argv[++i], &fin, 10);
+            if (*fin != '\0' || max_clientes < 1 || max_clientes > MAX_CLIENTES_TOPE) {
+                fprintf(stderr, "Error: maximo de clientes invalido (-n). Debe estar entre 1 y %d.\n",
+                        MAX_CLIENTES_TOPE);
+                return ERR_ARGS;
+            }
         } else if ((strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--backlog") == 0) && i + 1 < argc) {
             int backlog = atoi(argv[++i]);
             if (backlog <= 0) {
@@ -142,17 +161,13 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error: falta el puerto de escucha (-p).\n");
         return ERR_ARGS;
     }
+    char maxtxt[16];
     const char *nombre_modo = (config.modo == MODO_FIFO) ? "FIFO"
                              : (config.modo == MODO_FORKED) ? "FORKED" : "THREADED";
-    printf("[servidor] modo=%s direccion=%s puerto=%u backlog=%d\n",
+    printf("[servidor] modo=%s direccion=%s puerto=%u backlog=%d max_clientes=%s\n",
            nombre_modo, config.direccion[0] ? config.direccion : "(todas)",
-           (unsigned)config.puerto, config.backlog);
-
-    if (config.modo != MODO_FIFO) {
-        printf("[servidor] aviso: el modo %s todavia no esta implementado "
-               "(tarea de concurrencia pendiente); sirviendo en modo FIFO mientras tanto.\n",
-               nombre_modo);
-    }
+           (unsigned)config.puerto, config.backlog,
+           config.modo == MODO_FIFO ? "1 (FIFO)" : (snprintf(maxtxt, sizeof maxtxt, "%ld", max_clientes), maxtxt));
 
    if (ruta_almacen[0] == '\0') {
     fprintf(stderr, "Error: falta el directorio de videos (-a).\n");
@@ -214,26 +229,20 @@ int main(int argc, char *argv[]) {
     instalar_manejo_de_senales();
     printf("[servidor] escuchando; Ctrl+C para detener de forma ordenada\n");
 
-    while (seguir_ejecutando) {
-        struct sockaddr_storage direccion_cliente;
-        socklen_t tam = sizeof(direccion_cliente);
-
-        int fd_cliente = accept(fd_escucha, (struct sockaddr *)&direccion_cliente, &tam);
-        if (fd_cliente < 0) {
-            if (!seguir_ejecutando) {
-                break;
-            }
-            perror("[servidor] accept");
-            continue;
-        }
-
-        atender_cliente(fd_cliente, catalog, canal);
+    contexto_servidor_t ctx = { fd_escucha, catalog, canal, (size_t)max_clientes };
+    int limpio;
+    switch (config.modo) {
+        case MODO_FORKED:   limpio = modo_forked_ejecutar(&ctx);   break;
+        case MODO_THREADED: limpio = modo_threaded_ejecutar(&ctx); break;
+        default:            limpio = modo_fifo_ejecutar(&ctx);     break;
     }
 
     printf("[servidor] senal de detencion recibida, cerrando de forma ordenada\n");
     close(fd_escucha);
-    canal_destroy(canal);
-    catalog_destroy(catalog);
+    if (limpio == 0) {
+        canal_destroy(canal);
+        catalog_destroy(catalog);
+    }
     printf("[servidor] detenido\n");
 
     return EXITO;
